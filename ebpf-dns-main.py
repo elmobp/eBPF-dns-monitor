@@ -4,7 +4,7 @@ from struct import unpack
 from bcc import BPF
 from socket import if_indextoname
 import logging
-
+import sqlite3
 logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ', filename='/var/log/ebpf-dns-monitor.log', encoding='utf-8', level=logging.INFO)
 
 
@@ -316,25 +316,30 @@ def print_dns(cpu, data, size):
 
     # Resource record types:
     DNS_QTYPE = {1: "A", 28: "AAAA"}
-
+    con = sqlite3.connect("dns.db")
     # Query:
     if dns_data.header.qr == 0:
         # We are only interested in A (1) and AAAA (28) records:
         for q in dns_data.questions:
             if q.qtype == 1 or q.qtype == 28:
-                print(f'COMM={proc_name} PID={sk.pid} TGID={sk.tgid} DEV={ifname} PROTO={NET_PROTO[proto]} SRC={saddr} DST={daddr} SPT={sport} DPT={dport} UID={sk.uid} GID={sk.gid} DNS_QR=0 DNS_NAME={q.qname} DNS_TYPE={DNS_QTYPE[q.qtype]}')
-                logging.info(f'COMM={proc_name} PID={sk.pid} TGID={sk.tgid} DEV={ifname} PROTO={NET_PROTO[proto]} SRC={saddr} DST={daddr} SPT={sport} DPT={dport} UID={sk.uid} GID={sk.gid} DNS_QR=0 DNS_NAME={q.qname} DNS_TYPE={DNS_QTYPE[q.qtype]}')
+                cursor = con.cursor()
+                cursor.execute("SELECT id FROM dns_q WHERE dns_name = ? and src_ip = ?", (q.qname, saddr))
+                has_data = cursor.fetchone()
+                if has_data is None:
+                    cursor = con.cursor()
+                    cursor.execute("INSERT into dns_q (`src_ip`, `dns_name`, `type`) VALUES (?, ?, ?)", (saddr, q.qname, DNS_QTYPE[q.qtype]))
     # Response:
     elif dns_data.header.qr == 1:
         # We are only interested in A (1) and AAAA (28) records:
         for rr in dns_data.rr:
             if rr.rtype == 1 or rr.rtype == 28:
-                print(f'COMM={proc_name} PID={sk.pid} TGID={sk.tgid} DEV={ifname} PROTO={NET_PROTO[proto]} SRC={saddr} DST={daddr} SPT={sport} DPT={dport} UID={sk.uid} GID={sk.gid} DNS_QR=1 DNS_NAME={rr.rname} DNS_TYPE={DNS_QTYPE[rr.rtype]} DNS_DATA={rr.rdata}')
-                logging.info(f'COMM={proc_name} PID={sk.pid} TGID={sk.tgid} DEV={ifname} PROTO={NET_PROTO[proto]} SRC={saddr} DST={daddr} SPT={sport} DPT={dport} UID={sk.uid} GID={sk.gid} DNS_QR=1 DNS_NAME={rr.rname} DNS_TYPE={DNS_QTYPE[rr.rtype]} DNS_DATA={rr.rdata}')
-
-    else:
-        print('Invalid DNS query type.')
-
+                cursor = con.cursor()
+                cursor.execute("SELECT id FROM dns_a WHERE dns_name = ? and src_ip = ?", (q.qname, saddr))
+                has_data = cursor.fetchone()
+                if has_data is None:
+                    cursor = con.cursor()
+                    cursor.execute("INSERT into dns_a (`src_ip`, `dns_name`, `type`, `data`) VALUES (?, ?, ?, ?)", (saddr, q.qname, DNS_QTYPE[q.qtype], rr.rdata))
+    con.close()
 # BPF initialization:
 bpf_kprobe = BPF(text=C_BPF_KPROBE)
 bpf_sock = BPF(text=BPF_SOCK_TEXT)
