@@ -317,9 +317,8 @@ def print_dns(cpu, data, size):
     con = sqlite3.connect("dns.db")
     # Query:
     if dns_data.header.qr == 0:
-        # We are only interested in A (1) and AAAA (28) records:
         for q in dns_data.questions:
-            if q.qtype == 1 or q.qtype == 28:
+            if q.qtype:
                 cursor = con.cursor()
                 cursor.execute("SELECT id FROM dns_q WHERE dns_name = ? and src_ip = ?", (str(q.qname), str(saddr)))
                 has_data = cursor.fetchone()
@@ -329,9 +328,8 @@ def print_dns(cpu, data, size):
                     con.commit()
     # Response:
     elif dns_data.header.qr == 1:
-        # We are only interested in A (1) and AAAA (28) records:
         for rr in dns_data.rr:
-            if rr.rtype == 1 or rr.rtype == 28:
+            if rr.rtype:
                 cursor = con.cursor()
                 cursor.execute("SELECT id FROM dns_a WHERE dns_name = ? and src_ip = ?", (str(rr.rname), str(saddr)))
                 has_data = cursor.fetchone()
