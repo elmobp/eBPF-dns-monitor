@@ -3,9 +3,7 @@
 from struct import unpack
 from bcc import BPF
 from socket import if_indextoname
-import logging
 import sqlite3
-logging.basicConfig(format='%(asctime)s %(message)s', datefmt='%Y-%m-%dT%H:%M:%SZ', filename='/var/log/ebpf-dns-monitor.log', encoding='utf-8', level=logging.INFO)
 
 
 C_BPF_KPROBE = """
@@ -323,22 +321,24 @@ def print_dns(cpu, data, size):
         for q in dns_data.questions:
             if q.qtype == 1 or q.qtype == 28:
                 cursor = con.cursor()
-                cursor.execute("SELECT id FROM dns_q WHERE dns_name = ? and src_ip = ?", (q.qname, saddr))
+                cursor.execute("SELECT id FROM dns_q WHERE dns_name = ? and src_ip = ?", (str(q.qname), str(saddr)))
                 has_data = cursor.fetchone()
                 if has_data is None:
                     cursor = con.cursor()
-                    cursor.execute("INSERT into dns_q (`src_ip`, `dns_name`, `type`) VALUES (?, ?, ?)", (saddr, q.qname, DNS_QTYPE[q.qtype]))
+                    cursor.execute("INSERT into dns_q (`src_ip`, `dns_name`, `type`) VALUES (?, ?, ?)", (str(saddr), str(q.qname), str(DNS_QTYPE[q.qtype])))
+                    con.commit()
     # Response:
     elif dns_data.header.qr == 1:
         # We are only interested in A (1) and AAAA (28) records:
         for rr in dns_data.rr:
             if rr.rtype == 1 or rr.rtype == 28:
                 cursor = con.cursor()
-                cursor.execute("SELECT id FROM dns_a WHERE dns_name = ? and src_ip = ?", (q.qname, saddr))
+                cursor.execute("SELECT id FROM dns_a WHERE dns_name = ? and src_ip = ?", (str(rr.rname), str(saddr)))
                 has_data = cursor.fetchone()
                 if has_data is None:
                     cursor = con.cursor()
-                    cursor.execute("INSERT into dns_a (`src_ip`, `dns_name`, `type`, `data`) VALUES (?, ?, ?, ?)", (saddr, q.qname, DNS_QTYPE[q.qtype], rr.rdata))
+                    cursor.execute("INSERT into dns_a (`src_ip`, `dns_name`, `type`, `data`) VALUES (?, ?, ?, ?)", (str(saddr), str(rr.rname), str(DNS_QTYPE[rr.rtype]), str(rr.rdata)))
+                    con.commit()
     con.close()
 # BPF initialization:
 bpf_kprobe = BPF(text=C_BPF_KPROBE)
